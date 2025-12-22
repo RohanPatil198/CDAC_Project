@@ -37,12 +37,11 @@ pipeline {
             }
         }
 
-        stage('SonarQube Code Scan') {
+         stage('SonarQube Code Scan') {
             steps {
+                echo "Running SonarQube analysis..."
                 sh '''
-                  docker run --rm \
-                    -v $(pwd):/usr/src \
-                    sonarsource/sonar-scanner-cli \
+                  sonar-scanner \
                     -Dsonar.projectKey=todo-app \
                     -Dsonar.sources=app \
                     -Dsonar.host.url=http://192.168.0.137:9000
