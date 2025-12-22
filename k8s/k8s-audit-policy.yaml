@@ -1,0 +1,11 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["pods","secrets","configmaps"]
+  - level: Request
+    users: ["system:admin"]
+  - level: None
+    users: ["system:kube-proxy"]

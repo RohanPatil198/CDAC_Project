@@ -1,0 +1,87 @@
+// cicd/Jenkinsfile
+pipeline {
+  agent any
+  environment {
+    REGISTRY = "<YOUR_REGISTRY>"           // e.g. registry.hub.docker.com/youruser
+    IMAGE = "${env.REGISTRY}/todo-app:${env.BUILD_NUMBER}"
+    KUBECONFIG_CREDENTIALS_ID = "kubeconfig-cred"
+    DOCKER_CREDENTIALS_ID = "docker-cred"
+    SONAR_HOST = "http://<SONAR_HOST>:9000"
+    SONAR_LOGIN = credentials('sonar-token') // set in Jenkins credentials
+  }
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+    stage('Unit tests') {
+      steps {
+        sh 'python -m pip install -r app/requirements.txt'
+        // add test command if you have tests, e.g. pytest
+        // sh 'pytest -q'
+      }
+    }
+    stage('SonarQube') {
+      steps {
+        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+          sh """
+            pip install sonar-scanner
+            sonar-scanner \
+              -Dsonar.projectKey=todo-app \
+              -Dsonar.sources=app \
+              -Dsonar.host.url=${SONAR_HOST} \
+              -Dsonar.login=${SONAR_TOKEN}
+          """
+        }
+      }
+    }
+    stage('Trivy Scan') {
+      steps {
+        sh '''
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy fs --exit-code 1 --severity CRITICAL,HIGH .
+        '''
+      }
+    }
+    stage('Build & Push Image') {
+      steps {
+        script {
+          docker.withRegistry('', 'docker-cred') {
+            def img = docker.build("${REGISTRY}/todo-app:${env.BUILD_NUMBER}", "-f docker/Dockerfile .")
+            img.push()
+            sh "docker rmi ${REGISTRY}/todo-app:${env.BUILD_NUMBER} || true"
+          }
+        }
+      }
+    }
+    stage('Deploy to Kubernetes') {
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig-cred', variable: 'KUBECONFIG_FILE')]) {
+          sh '''
+            export KUBECONFIG=${KUBECONFIG_FILE}
+            kubectl apply -f k8s/namespace.yaml
+            kubectl apply -f k8s/secrets.yaml
+            kubectl apply -f k8s/mysql-pvc.yaml
+            kubectl apply -f k8s/configmap-todo-sql.yaml
+            kubectl apply -f k8s/mysql-deployment.yaml
+            # wait for mysql init
+            kubectl rollout status deployment/mysql -n todo || true
+            kubectl apply -f k8s/todo-deployment.yaml
+            kubectl apply -f k8s/todo-service.yaml
+            kubectl apply -f k8s/modsecurity-deployment.yaml
+            kubectl apply -f k8s/modsecurity-service.yaml
+            kubectl apply -f k8s/ingress.yaml
+            kubectl apply -f k8s/snort-daemonset.yaml
+            kubectl apply -f k8s/fluentd-daemonset.yaml
+          '''
+        }
+      }
+    }
+  }
+  post {
+    always {
+      echo "Pipeline finished"
+    }
+  }
+}

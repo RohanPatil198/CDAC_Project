@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modsecurity-crs
+  namespace: todo
+data:
+  crs-setup.conf: |
+    SecAction "id:900130, phase:1, nolog, pass, t:none, setvar:tx.crs_setup=1"
+  rules.conf: |
+    # sample rule to block SQLi-ish payloads (demo only)
+    SecRule ARGS "@rx (union.*select|select.*from|drop\s+table|information_schema)" \
+      "id:1000001,phase:2,deny,status:403,log,msg:'Possible SQL injection detected'"

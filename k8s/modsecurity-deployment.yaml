@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modsecurity
+  namespace: todo
+  labels:
+    app: modsecurity
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: modsecurity
+  template:
+    metadata:
+      labels:
+        app: modsecurity
+    spec:
+      containers:
+        - name: modsecurity
+          image: owasp/modsecurity-crs:3.3-nginx  # if not available, change to an image you have
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: modsec-conf
+              mountPath: /etc/modsecurity.d
+            - name: modsec-crs
+              mountPath: /etc/modsecurity-crs
+      volumes:
+        - name: modsec-conf
+          configMap:
+            name: modsecurity-config
+        - name: modsec-crs
+          configMap:
+            name: modsecurity-crs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: modsecurity-service
+  namespace: todo
+spec:
+  selector:
+    app: modsecurity
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
