@@ -4,7 +4,7 @@ pipeline {
     environment {
         APP_NAME        = "todo-app"
         IMAGE_NAME      = "todo-app:latest"
-        SONAR_HOST_URL  = "http://192.168.0.137:9000"
+        SONAR_HOST_URL  = "http://192.168.0.88:9000"
         SONAR_PROJECT   = "todo-app"
         KUBECONFIG      = "/var/lib/jenkins/.kube/config"
     }
@@ -44,7 +44,7 @@ pipeline {
                   sonar-scanner \
                     -Dsonar.projectKey=todo-app \
                     -Dsonar.sources=app \
-                    -Dsonar.host.url=http://192.168.0.137:9000
+                    -Dsonar.host.url=http://192.168.0.88:9000
                 '''
             }
         }
