@@ -1,42 +1,70 @@
 pipeline {
     agent any
 
-    tools {
-        // IMPORTANT: This name must EXACTLY match the name in 
-        // Manage Jenkins -> Tools -> SonarQube Scanner installations
-        sonarScanner 'sonar-scanner' 
-    }
-
     environment {
-        APP_NAME        = "todo-app"
-        IMAGE_NAME      = "todo-app:latest"
-        SONAR_HOST_URL  = "http://192.168.0.88:9000"
-        SONAR_PROJECT   = "todo-app"
+        IMAGE_NAME = "todo-app"
+        IMAGE_TAG  = "latest"
+        SONAR_HOME = tool "sonar"
+        SONAR_PROJECT_KEY = "todo-app"
     }
 
     stages {
-        stage('Checkout Code') {
+
+        stage("Clone Code from GitHub") {
             steps {
-                git branch: 'main', url: "https://github.com/RohanPatil198/CDAC_Project.git"
+                git url: "https://github.com/RohanPatil198/CDAC_Project.git", branch: "main"
             }
         }
 
-        stage('Build Docker Image') {
+        stage("SonarQube Quality Analysis") {
             steps {
-                sh "docker build -t ${IMAGE_NAME} -f docker/Dockerfile ."
+                withSonarQubeEnv("sonar") {
+                    sh """
+                    ${SONAR_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectName=todo-app \
+                    -Dsonar.projectKey=todo-app
+                    """
+                }
             }
         }
 
-        stage('Trivy Image Scan') {
+        stage("OWASP Dependency Check") {
             steps {
-                sh "trivy image --severity LOW,MEDIUM ${IMAGE_NAME}"
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'dc'
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
             }
         }
 
-        stage('SonarQube Code Scan') {
+        stage("Sonar Quality Gate Scan") {
             steps {
-                // Using the scanner defined in the 'tools' block above
-                sh "sonar-scanner -Dsonar.projectKey=${SONAR_PROJECT} -Dsonar.sources=app -Dsonar.host.url=${SONAR_HOST_URL}"
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+
+        stage("Build Docker Image") {
+            steps {
+                echo "Building Docker image..."
+                sh """
+                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -f docker/Dockerfile .
+                """
+            }
+        }
+
+        stage("Trivy Image Scan") {
+            steps {
+                echo "Running Trivy vulnerability scan..."
+                sh """
+                trivy image --severity HIGH,CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage("Deploy to Kubernetes") {
+            steps {
+                echo "Deploying to Kubernetes..."
+                // kubectl apply -f k8s/
             }
         }
     }
