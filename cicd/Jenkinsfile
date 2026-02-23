@@ -1,0 +1,140 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_USER = "pruthviraj81"
+        DOCKER_PASS = "dockerhub-creds"
+        IMAGE_NAME  = "todo-app"
+        IMAGE_TAG   = "${BUILD_NUMBER}"
+        FULL_IMAGE  = "${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+        GIT_USER = "PruthvirajIngale81"
+        GIT_PASS = "github-creds"
+
+        SONAR_HOME = tool "sonar"
+        SONAR_PROJECT_KEY = "todo-app"
+    }
+
+    stages {
+
+        stage("Clone Code from GitHub") {
+            steps {
+                sh 'rm -rf *'
+                git url: "https://github.com/PruthvirajIngale81/ultimate-cicd-pipeline.git", branch: "main"
+            }
+        }
+
+        stage("SonarQube Quality Analysis") {
+            steps {
+                withSonarQubeEnv("sonar") {
+                    sh """
+                    ${SONAR_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectName=todo-app \
+                    -Dsonar.projectKey=todo-app
+                    """
+                }
+            }
+        }
+
+        stage("OWASP Dependency Check") {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'dc'
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+            }
+        }
+
+        stage("Sonar Quality Gate Scan") {
+            steps {
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+
+        stage("Build Docker Image") {
+            steps {
+                echo "Building Docker image..."
+                sh """
+                docker build -t ${FULL_IMAGE} .
+                """
+            }
+        }
+
+        stage("Trivy Image Scan") {
+            steps {
+                echo "Running Trivy vulnerability scan..."
+                sh """
+                trivy image --severity HIGH,CRITICAL ${FULL_IMAGE}
+                """
+            }
+        }
+
+        stage("Docker Login & push Image") {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+               
+					echo "Pushing image to DockerHub..."
+                    sh """
+                    docker push ${FULL_IMAGE}
+                    """
+			   }
+            }
+        }
+
+		stage("Update YAML & Push to GitHub") {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-creds',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASS'
+                )]) {
+
+                    sh """
+                    
+                    update_yaml() {
+                        echo "Updating image inside todo-deployment.yaml..."
+                        sed -i "s|image:.*|image: ${FULL_IMAGE}|" k8s/todo-deployment.yaml
+                        echo "YAML updated successfully"
+                    }
+
+                    push_to_github() {
+                        echo "Pushing updated YAML to GitHub..."
+
+                        git config user.email "pruthvirajingale0081@gmail.com"
+                        git config user.name "PruthvirajIngale81"
+
+                        git add k8s/todo-deployment.yaml
+                        git commit -m "Updated image to ${FULL_IMAGE}" || echo "Imgae updated, no changes to commit"
+
+                        git push https://${GIT_USER}:${GIT_PASS}@github.com/PruthvirajIngale81/ultimate-cicd-pipeline.git HEAD:main
+                    }
+
+                    # Call Functions
+                    update_yaml
+                    push_to_github
+                    """
+                }
+            }
+        }
+
+        stage("Deploy to Kubernetes (k3s)") {
+            steps {
+                sh """
+
+				./k3.sh
+                echo "Updating deployment image..."
+                kubectl set image deployment/todo-app todo-app=${FULL_IMAGE} -n todo
+
+                echo "Waiting for rollout..."
+                kubectl rollout status deployment/todo-app -n todo
+                """
+            }
+        }
+    }
+
+}
