@@ -1,7 +1,0 @@
-# security/rules-local.rules
-# detect basic SQL injection keywords in URI
-alert tcp any any -> any 80 (msg:"SQL Injection - possible"; flow:to_server,established; content:"select"; nocase; http_uri; sid:1000001; rev:1;)
-# detect repeated failed logins (simple heuristic)
-alert tcp any any -> any 80 (msg:"Brute force detected - many POSTs"; flow:to_server,established; content:"POST"; http_method; threshold: type threshold, track by_src, count 20, seconds 60; sid:1000002; rev:1;)
-# potential DDoS (lots of SYNs)
-alert tcp any any -> any any (flags:S; msg:"Possible SYN flood"; threshold: type both, track by_dst, count 200, seconds 10; sid:1000003; rev:1;)
